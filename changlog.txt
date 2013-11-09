@@ -1,0 +1,5 @@
+Version 0.0.4
+fix website changes
+added initial subscription support
+added Cooks Illustrated videos
+bump python api for Gotham
