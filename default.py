@@ -185,16 +185,21 @@ def resolve_url(page_url, retry=False):
         if not logged_in:
             notify('This video requires a subscription')
             return
-        elif logged_in == 'logged in':
+        elif logged_in == 'already logged in':
             notify('Addon Error: did not find video ID')
             return
         else:
             if not retry:
                 logged_in = login()
                 if logged_in:
+                    addon_log('Retry after logging in')
                     return resolve_url(page_url, True)
                 else:
                     return
+            else:
+                notify('Addon Error: did not find video ID')
+                addon_log('Retry Failed')
+                return
         
     data = make_request(smil_url %(entry_id, iframe_id))
     streams_dict = xmltodict.parse(data)
@@ -246,9 +251,10 @@ def add_dir(name, url, mode, iconimage, isfolder=True):
 
     
 def login():
+    addon_log('Attempting login')
     settings = {'0': kitchen_url, '1': country_url, '2': cooks_url}
     sub_type = addon.getSetting('sub_type')
-    if sub_type == 3:
+    if sub_type == '3':
         login_url = kitchen_url
     else:
         login_url = settings[sub_type]
@@ -273,24 +279,28 @@ def login():
             addon_log("logged in successfully")
             return True
         else:
+            addon_log('Login Failed')
             notify('Login Failed')
             xbmc.sleep(5000)
             
             
 def check_login(soup_scripts):
+    addon_log('Checking login')
     logged_in = False
     pattern = re.compile("'email': '(.+?)'")
     pattern_p = re.compile("'package': '(.+?)'")
-    if not addon.getSetting('sub_type') == '4':
+    if addon.getSetting('sub_type') == '4':
+        addon_log('Subscription not enabled')
+    else:
         for i in soup_scripts:
             tx = i.get_text()
             email = pattern.findall(tx)
             package = pattern_p.findall(tx)
             if email:
                 addon_log('Logged In; Subscription: %s' %package)
-                return 'logged in'
+                logged_in = 'already logged in'
         addon_log('Not Logged In')
-        return 'not logged in'
+        logged_in = 'not logged in'
     return logged_in
     
 
