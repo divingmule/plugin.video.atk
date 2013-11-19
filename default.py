@@ -158,8 +158,6 @@ def resolve_url(page_url, retry=False):
     soup = get_soup(page_url)
     pattern = re.compile("VideoPlayer\('(.+?)','(.+?)', '.+?', '.+?'\);")
     pattern_1 = re.compile("VideoPlayer\('(.+?)', '(.+?)', '.+?', '.+?'\);")
-    smil_url = ('http://cdnapi.kaltura.com/p/1445801/sp/144580100/playManifest/entryId/%s'
-                '/format/hdnetworksmil/protocol/http/cdnHost/cdnbakmi.kaltura.com/uiConfId/%s/a/a.smil?')
     entry_id = None
     scripts = soup('script')
     for i in scripts:
@@ -174,23 +172,25 @@ def resolve_url(page_url, retry=False):
     if entry_id is None:
         if '/science/' in page_url:
             try:
-                [(entry_id, iframe_id) for iframe_id, entry_id in pattern.findall(soup.find('a', class_='science')['onclick'])]
+                [(entry_id, iframe_id) for iframe_id, entry_id in
+                    pattern.findall(soup.find('a', class_='science')['onclick'])]
                 if entry_id is None:
-                    [(entry_id, iframe_id) for iframe_id, entry_id in pattern_1.findall(soup.find('a', class_='science')['onclick'])]
+                    [(entry_id, iframe_id) for iframe_id, entry_id in
+                        pattern_1.findall(soup.find('a', class_='science')['onclick'])]
             except:
                 pass
     if entry_id is None:
         addon_log('No matching pattern')
         logged_in = check_login(scripts)
-        if not logged_in:
+        if logged_in == 'Subscription not enabled':
             notify('This video requires a subscription')
             return
-        elif logged_in == 'already logged in':
+        elif logged_in == 'Already logged in':
             notify('Addon Error: did not find video ID')
             return
         else:
             if not retry:
-                logged_in = login()
+                logged_in = login(page_url)
                 if logged_in:
                     addon_log('Retry after logging in')
                     return resolve_url(page_url, True)
@@ -198,9 +198,11 @@ def resolve_url(page_url, retry=False):
                     return
             else:
                 notify('Addon Error: did not find video ID')
-                addon_log('Retry Failed')
+                addon_log('Retry Failed: %s' %page_url)
                 return
         
+    smil_url = ('http://cdnapi.kaltura.com/p/1445801/sp/144580100/playManifest/entryId/%s'
+                '/format/hdnetworksmil/protocol/http/cdnHost/cdnbakmi.kaltura.com/uiConfId/%s/a/a.smil?')
     data = make_request(smil_url %(entry_id, iframe_id))
     streams_dict = xmltodict.parse(data)
     server = streams_dict['smil']['head']['meta'][1]['@content']
@@ -250,17 +252,11 @@ def add_dir(name, url, mode, iconimage, isfolder=True):
     xbmcplugin.addDirectoryItem(int(sys.argv[1]), url, listitem, isfolder)
 
     
-def login():
+def login(page_url):
     addon_log('Attempting login')
-    settings = {'0': kitchen_url, '1': country_url, '2': cooks_url}
-    sub_type = addon.getSetting('sub_type')
-    if sub_type == '3':
-        login_url = kitchen_url
-    else:
-        login_url = settings[sub_type]
-    if not login_url.startswith('https'):
-        login_url = login_url.replace('http', 'https') 
-    soup = get_soup(login_url + '/sign_in')
+    base_urls = [kitchen_url, country_url, cooks_url]
+    login_base = [i for i in base_urls if i in page_url][0].replace('http:', 'https:')
+    soup = get_soup(login_base + '/sign_in')
     header = soup.find('div', class_='header', text='Sign into your account')
     items = header.findAllNext('input')
     post_data = {'user[password]': addon.getSetting('password'),
@@ -271,38 +267,37 @@ def login():
         if i.has_key('name') and i['name'] == 'utf8':
             post_data['utf8'] = i['value'].encode('utf8')
     if post_data.has_key('authenticity_token'):
-        post_url = login_url + '/sessions'
+        post_url = login_base + '/sessions'
         login_data = make_request(post_url, urllib.urlencode(post_data))
         pattern = re.compile("\'email\': \'(.+?)\',\n      \'user_id\': \'(.+?)\',\n")
         [(email, userId) for email, userId in pattern.findall(login_data)]
         if userId and len(userId) > 0:
-            addon_log("logged in successfully")
+            addon_log('Logged in successfully')
             return True
         else:
             addon_log('Login Failed')
             notify('Login Failed')
             xbmc.sleep(5000)
-            
-            
-def check_login(soup_scripts):
-    addon_log('Checking login')
-    logged_in = False
-    pattern = re.compile("'email': '(.+?)'")
-    pattern_p = re.compile("'package': '(.+?)'")
-    if addon.getSetting('sub_type') == '4':
-        addon_log('Subscription not enabled')
     else:
-        for i in soup_scripts:
-            tx = i.get_text()
-            email = pattern.findall(tx)
-            package = pattern_p.findall(tx)
-            if email:
-                addon_log('Logged In; Subscription: %s' %package)
-                logged_in = 'already logged in'
-        addon_log('Not Logged In')
-        logged_in = 'not logged in'
+        addon_log('Failed to get the authenticity_token')
+            
+            
+def check_login(page_url):
+    addon_log('Checking login')
+    if addon.getSetting('sub_type') == 'false':
+        logged_in = 'Subscription not enabled'
+    else:
+        cookie_jar.load(cookie_file, ignore_discard=False, ignore_expires=False)
+        logged_in = False
+        for i in cookie_jar:
+            addon_log('%s: %s' %(i.name, i.domain))
+            if i.name == 'auth_token' and i.domain in page_url:
+                logged_in = 'Already logged in'
+                break
+        if not logged_in:
+            logged_in = 'Not logged in'
+    addon_log(logged_in)
     return logged_in
-    
 
 
 if not xbmcvfs.exists(addon_profile):
