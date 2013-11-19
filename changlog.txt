@@ -1,3 +1,6 @@
+Version 0.0.6
+update login method
+
 Version 0.0.5
 fix bug in login
 added more debug logging
